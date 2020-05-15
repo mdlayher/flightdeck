@@ -16,6 +16,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Cgo dependencies
+      run: sudo apt install libasound2-dev
+
+
     - name: Set up Go
       uses: actions/setup-go@v1
       with:
