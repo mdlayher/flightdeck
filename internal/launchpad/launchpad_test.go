@@ -16,7 +16,9 @@ package launchpad_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/mdlayher/flightdeck/internal/launchpad"
@@ -123,6 +125,144 @@ func TestDeviceEventsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDeviceMIDICommands(t *testing.T) {
+	// Copied from internal API to avoid exporting.
+	const (
+		noteOn           = 0x90 // Activate an LED.
+		threeNoteOn      = 0x92 // Rapid fill LEDs.
+		controllerChange = 0xb0 // Control messages and top row of LEDs.
+	)
+
+	// fillBytes generates an expected byte sequence which a Launchpad would
+	// consume to fill the entire grid with one color. 40 iterations to fill
+	// the grid is the number specified in the programmer's reference.
+	fillBytes := func(color launchpad.Color) [][]byte {
+		const n = 40
+		out := make([][]byte, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, []byte{threeNoteOn, byte(color), byte(color)})
+		}
+
+		return out
+	}
+
+	tests := []struct {
+		name string
+		fn   func(d *launchpad.Device)
+		out  [][]byte
+	}{
+		{
+			name: "noop",
+		},
+		{
+			name: "reset",
+			fn: func(d *launchpad.Device) {
+				if err := d.Reset(); err != nil {
+					panicf("failed to reset: %v", err)
+				}
+			},
+			out: [][]byte{{controllerChange, 0x00, 0x00}},
+		},
+		{
+			name: "light",
+			fn: func(d *launchpad.Device) {
+				colors := []launchpad.Color{
+					launchpad.RedLow,
+					launchpad.RedMedium,
+					launchpad.RedHigh,
+				}
+
+				for i, c := range colors {
+					if err := d.Light(i, i, c); err != nil {
+						panicf("failed to light: %v", err)
+					}
+				}
+			},
+			out: [][]byte{
+				{noteOn, 0x00, byte(launchpad.RedLow)},
+				{noteOn, 0x11, byte(launchpad.RedMedium)},
+				{noteOn, 0x22, byte(launchpad.RedHigh)},
+			},
+		},
+		{
+			name: "fill",
+			fn: func(d *launchpad.Device) {
+				if err := d.Fill(launchpad.GreenHigh); err != nil {
+					panicf("failed to fill: %v", err)
+				}
+			},
+			out: func() [][]byte {
+				// A single Light operation is appended to reset the device to
+				// its normal non-filling mode.
+				out := fillBytes(launchpad.GreenHigh)
+				out = append(out, []byte{noteOn, 0x00, byte(launchpad.GreenHigh)})
+				return out
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := testDevice(t)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// TODO(mdlayher): it is difficult to determine if all of the
+			// callbacks have or have not fired in response to writes performed
+			// by tt.fn. As such, we are temporarily using a mutex around these
+			// buffers and checking the number of operations performed according
+			// to the expected value in len(tt.out).
+			//
+			// It would be nice to change this to a channel and remove the
+			// lock and retry mechanism.
+			var (
+				mu  sync.Mutex
+				out [][]byte
+			)
+
+			consume := func(b []byte, _ int64) {
+				mu.Lock()
+				defer mu.Unlock()
+				out = append(out, b)
+			}
+
+			if err := d.Listen(ctx, consume); err != nil {
+				t.Fatalf("failed to listen: %v", err)
+			}
+
+			// Manipulate the device to trigger MIDI events.
+			if tt.fn != nil {
+				tt.fn(d)
+			}
+
+			// Keep checking for MIDI events until we receive the expected
+			// number as defined in the test table.
+			var ok bool
+			for i := 0; i < 10; i++ {
+				mu.Lock()
+				if l := len(out); l == len(tt.out) {
+					ok = true
+					cancel()
+					mu.Unlock()
+					break
+				}
+				mu.Unlock()
+
+				time.Sleep(5 * time.Millisecond)
+			}
+			if !ok {
+				t.Fatalf("did not receive %d MIDI events", len(tt.out))
+			}
+
+			// Finally we can verify the output bytes.
+			if diff := cmp.Diff(tt.out, out); diff != "" {
+				t.Fatalf("unexpected MIDI commands (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func testDevice(t *testing.T) *launchpad.Device {
 	t.Helper()
 
@@ -148,3 +288,7 @@ func testDevice(t *testing.T) *launchpad.Device {
 }
 
 func testDriver() midi.Driver { return testdrv.New("Launchpad Test") }
+
+func panicf(format string, a ...interface{}) {
+	panic(fmt.Sprintf(format, a...))
+}

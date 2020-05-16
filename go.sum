@@ -11,4 +11,5 @@ gitlab.com/gomidi/rtmididrv/imported/rtmidi v0.0.0-20200507143945-25294008b798 h
 gitlab.com/gomidi/rtmididrv/imported/rtmidi v0.0.0-20200507143945-25294008b798/go.mod h1:FYVFN2H23IsX56VntiDF9DgCIekHh359wW+iMl1W8rQ=
 golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a h1:WXEvlFVvvGxCJLG6REjsT03iWnKLEWinaScsxF2Vm2o=
 golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=

@@ -67,6 +67,7 @@ var ErrDevice = errors.New("device is not a launchpad")
 
 // A Device is a Novation Launchpad MIDI device.
 type Device struct {
+	mu  sync.Mutex
 	in  midi.In
 	out midi.Out
 	wg  sync.WaitGroup
@@ -164,11 +165,15 @@ func (d *Device) String() string {
 // Close closes the input and output MIDI channels for a Device and resets it
 // to the default state.
 func (d *Device) Close() error {
-	defer d.wg.Wait()
+	d.mu.Lock()
+	defer func() {
+		d.mu.Unlock()
+		d.wg.Wait()
+	}()
 
 	// Optimistically reset the device but don't return an error if the device
 	// indicates EOF, as the test driver devices do.
-	if err := d.Reset(); err != nil && err != io.EOF {
+	if err := d.resetLocked(); err != nil && err != io.EOF {
 		return fmt.Errorf("failed to reset on close: %w", err)
 	}
 
@@ -183,24 +188,37 @@ func (d *Device) Close() error {
 	return nil
 }
 
-// Listen invokes fn for each input MIDI message from a Launchpad device. Listen
-// will block until ctx is canceled.
+// Listen invokes fn for each input MIDI message from a Launchpad device until
+// ctx is canceled. The context must be canceled when listening for messages
+// is no longer necessary.
 //
 // Most callers should use Events instead.
 func (d *Device) Listen(ctx context.Context, fn func(b []byte, timestamp int64)) error {
-	d.wg.Add(1)
-	defer d.wg.Done()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	if err := d.in.SetListener(fn); err != nil {
 		return fmt.Errorf("failed to listen for inputs: %w", err)
 	}
 
-	<-ctx.Done()
-	if err := d.in.StopListening(); err != nil {
-		return fmt.Errorf("failed to stop listening for inputs: %w", err)
-	}
+	// Now that the callback has been applied, we return control to the
+	// caller and wait for ctx to be canceled. At that point, we stop listening
+	// for events and close the channel to signal the consumer.
+	d.wg.Add(1)
+	go func() {
+		defer func() {
+			d.mu.Unlock()
+			d.wg.Done()
+		}()
 
-	return ctx.Err()
+		<-ctx.Done()
+
+		// Now that the context is canceled, clean up the listener.
+		d.mu.Lock()
+		_ = d.in.StopListening()
+	}()
+
+	return nil
 }
 
 // An Event indicates that a button at coordinates (X, Y) was pressed or
@@ -211,8 +229,12 @@ type Event struct {
 }
 
 // Events immediately opens and returns a channel of input events from a
-// Launchpad device. The channel is closed when ctx is canceled.
+// Launchpad device. The channel is closed when ctx is canceled. The context
+// must be canceled when listening for Events is no longer necessary.
 func (d *Device) Events(ctx context.Context) (<-chan Event, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	// Buffer up events to try to avoid dropping them. This should be a
 	// sufficient number for how quickly a human can manipulate buttons.
 	eventC := make(chan Event, 32)
@@ -265,9 +287,15 @@ func (d *Device) Events(ctx context.Context) (<-chan Event, error) {
 	// for events and close the channel to signal the consumer.
 	d.wg.Add(1)
 	go func() {
-		defer d.wg.Done()
+		defer func() {
+			d.mu.Unlock()
+			d.wg.Done()
+		}()
 
 		<-ctx.Done()
+
+		// Now that the context is canceled, clean up the listener.
+		d.mu.Lock()
 		_ = d.in.StopListening()
 		close(eventC)
 	}()
@@ -281,37 +309,59 @@ func (d *Device) Events(ctx context.Context) (<-chan Event, error) {
 //
 // To more efficiently light all LEDs with one color, use Fill instead.
 func (d *Device) Light(x, y int, color Color) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.lightLocked(x, y, color)
+}
+
+// lightLocked is the internal implementation of Light. The caller must acquire
+// d.mu before invoking writeLocked.
+func (d *Device) lightLocked(x, y int, color Color) error {
 	if y == 8 {
 		// Write to top row using the appropriate command and memory offset.
-		return d.write([...]byte{controllerChange, byte(0x68 + x), byte(color)})
+		return d.writeLocked([...]byte{controllerChange, byte(0x68 + x), byte(color)})
 	}
 
 	// Write to all other rows of the LED using the standard formula.
-	return d.write([...]byte{noteOn, byte(x + 0x10*y), byte(color)})
+	return d.writeLocked([...]byte{noteOn, byte(x + 0x10*y), byte(color)})
 }
 
 // Fill rapidly fills all LEDs on a Launchpad with the specified Color. Fill
 // is more efficient than calling Light for each coordinate.
 func (d *Device) Fill(color Color) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	// 40 invocations will fill all LEDs on the device, per the reference.
 	b := [...]byte{threeNoteOn, byte(color), byte(color)}
 	for i := 0; i < 40; i++ {
-		if err := d.write(b); err != nil {
+		if err := d.writeLocked(b); err != nil {
 			return err
 		}
 	}
 
 	// Light the origin with the same color (a no-op) to force the device out of
 	// rapid filling mode and to allow a subsequent call to Fill.
-	return d.Light(0, 0, color)
+	return d.lightLocked(0, 0, color)
 }
 
 // Reset resets the Device's state by turning off all LEDs and resetting internal
 // device settings.
-func (d *Device) Reset() error { return d.write([...]byte{controllerChange, 0x00, 0x00}) }
+func (d *Device) Reset() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.resetLocked()
+}
 
-// write writes b to a Launchpad device.
-func (d *Device) write(b [3]byte) error {
+// resetLocked is the internal implementation of Reset. The caller must acquire
+// d.mu before invoking resetLocked.
+func (d *Device) resetLocked() error {
+	return d.writeLocked([...]byte{controllerChange, 0x00, 0x00})
+}
+
+// writeLocked writes b to a Launchpad device. The caller must acquire d.mu
+// before invoking writeLocked.
+func (d *Device) writeLocked(b [3]byte) error {
 	// Launchpad inputs are always 3 bytes.
 	n, err := d.out.Write(b[:])
 	if err != nil {
