@@ -72,6 +72,44 @@ type Device struct {
 	wg  sync.WaitGroup
 }
 
+// Devices detects and opens handles to all Launchpad devices attached
+// to this system.
+func Devices(drv midi.Driver) ([]*Device, error) {
+	inputs, err := drv.Ins()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inputs: %w", err)
+	}
+
+	outputs, err := drv.Outs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inputs: %w", err)
+	}
+
+	// Look for matching input and output devices.
+	var devices []*Device
+	for _, in := range inputs {
+		for _, out := range outputs {
+			d, err := Open(in, out)
+			if err != nil {
+				// Indicates either a mismatch or a non-Launchpad MIDI device.
+				if errors.Is(err, ErrDevice) {
+					continue
+				}
+
+				return nil, err
+			}
+
+			devices = append(devices, d)
+		}
+	}
+
+	if len(devices) == 0 {
+		return nil, errors.New("no launchpad devices found")
+	}
+
+	return devices, nil
+}
+
 // Open initializes a Device using MIDI input and output devices. If in and/or out
 // are not Novation Launchpad devices, the value ErrDevice can be unwrapped
 // from the returned error.

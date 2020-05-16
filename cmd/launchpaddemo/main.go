@@ -17,7 +17,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -27,7 +26,6 @@ import (
 	"time"
 
 	"github.com/mdlayher/flightdeck/internal/launchpad"
-	"gitlab.com/gomidi/midi"
 	"gitlab.com/gomidi/rtmididrv"
 	"golang.org/x/sync/errgroup"
 )
@@ -65,7 +63,7 @@ func main() {
 	}
 	defer drv.Close()
 
-	devices, err := findLaunchpads(drv)
+	devices, err := launchpad.Devices(drv)
 	if err != nil {
 		log.Fatalf("failed to find launchpads: %v", err)
 	}
@@ -107,44 +105,6 @@ func run(ctx context.Context, d *launchpad.Device) error {
 	}
 
 	return nil
-}
-
-// findLaunchpads detects and opens handles to all Launchpad devices attached
-// to this system.
-func findLaunchpads(drv midi.Driver) ([]*launchpad.Device, error) {
-	inputs, err := drv.Ins()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get inputs: %v", err)
-	}
-
-	outputs, err := drv.Outs()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get inputs: %v", err)
-	}
-
-	// Look for matching input and output devices.
-	var devices []*launchpad.Device
-	for _, in := range inputs {
-		for _, out := range outputs {
-			d, err := launchpad.Open(in, out)
-			if err != nil {
-				// Indicates either a mismatch or a non-Launchpad MIDI device.
-				if errors.Is(err, launchpad.ErrDevice) {
-					continue
-				}
-
-				return nil, err
-			}
-
-			devices = append(devices, d)
-		}
-	}
-
-	if len(devices) == 0 {
-		return nil, errors.New("no launchpad devices found")
-	}
-
-	return devices, nil
 }
 
 // write writes data to a Launchpad device by filling the LED grid and
