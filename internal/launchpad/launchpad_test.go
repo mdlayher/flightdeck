@@ -131,6 +131,9 @@ func TestDeviceMIDICommands(t *testing.T) {
 		noteOn           = 0x90 // Activate an LED.
 		threeNoteOn      = 0x92 // Rapid fill LEDs.
 		controllerChange = 0xb0 // Control messages and top row of LEDs.
+
+		flashOff = 0x21 // Turn flashing LEDs off.
+		flashOn  = 0x28 // Automatic flashing at the Launchpad's default speed.
 	)
 
 	// fillBytes generates an expected byte sequence which a Launchpad would
@@ -182,6 +185,20 @@ func TestDeviceMIDICommands(t *testing.T) {
 				{noteOn, 0x00, byte(launchpad.RedLow)},
 				{noteOn, 0x11, byte(launchpad.RedMedium)},
 				{noteOn, 0x22, byte(launchpad.RedHigh)},
+			},
+		},
+		{
+			name: "flash",
+			fn: func(d *launchpad.Device) {
+				for _, b := range []bool{true, false} {
+					if err := d.Flash(b); err != nil {
+						panicf("failed to flash: %v", err)
+					}
+				}
+			},
+			out: [][]byte{
+				{controllerChange, 0x00, flashOn},
+				{controllerChange, 0x00, flashOff},
 			},
 		},
 		{

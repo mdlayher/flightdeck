@@ -317,6 +317,9 @@ func (d *Device) Light(x, y int, color Color) error {
 // lightLocked is the internal implementation of Light. The caller must acquire
 // d.mu before invoking writeLocked.
 func (d *Device) lightLocked(x, y int, color Color) error {
+	// TODO(mdlayher): investigate the Flags field for properties such as flashing
+	// the LEDs.
+
 	if y == 8 {
 		// Write to top row using the appropriate command and memory offset.
 		return d.writeLocked([...]byte{controllerChange, byte(0x68 + x), byte(color)})
@@ -343,6 +346,25 @@ func (d *Device) Fill(color Color) error {
 	// Light the origin with the same color (a no-op) to force the device out of
 	// rapid filling mode and to allow a subsequent call to Fill.
 	return d.lightLocked(0, 0, color)
+}
+
+// Flash turns on the flashing mode for LEDs with the Clear and Copy bits set
+// as part of their Color.
+func (d *Device) Flash(on bool) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	const (
+		flashOff byte = 0x21 // Turn flashing LEDs off.
+		flashOn  byte = 0x28 // Automatic flashing at the Launchpad's default speed.
+	)
+
+	onOff := flashOff
+	if on {
+		onOff = flashOn
+	}
+
+	return d.writeLocked([...]byte{controllerChange, 0x00, onOff})
 }
 
 // Reset resets the Device's state by turning off all LEDs and resetting internal

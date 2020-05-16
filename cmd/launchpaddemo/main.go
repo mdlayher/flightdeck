@@ -150,6 +150,10 @@ func write(ctx context.Context, d *launchpad.Device, eventC <-chan launchpad.Eve
 
 			log.Printf("input: (%d, %d): %s", e.X, e.Y, state)
 
+			if err := d.Flash(e.On); err != nil {
+				return fmt.Errorf("failed to flash LEDs: %v", err)
+			}
+
 			if err := d.Light(e.X, e.Y, color); err != nil {
 				return fmt.Errorf("failed to light LED: %v", err)
 			}
@@ -179,6 +183,10 @@ func write(ctx context.Context, d *launchpad.Device, eventC <-chan launchpad.Eve
 				launchpad.YellowLow, launchpad.YellowMedium, launchpad.YellowHigh,
 				launchpad.RedLow, launchpad.RedMedium, launchpad.RedHigh,
 			} {
+				// TODO: document these values, but this enables flashing of only
+				// specific LEDs without these bits set.
+				c |= launchpad.Copy | launchpad.Clear
+
 				if err := d.Fill(c); err != nil {
 					return fmt.Errorf("failed to fill LEDs: %v", err)
 				}
