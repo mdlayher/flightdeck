@@ -73,7 +73,8 @@ type Device struct {
 }
 
 // Devices detects and opens handles to all Launchpad devices attached
-// to this system.
+// to this system. If no Launchpad devices are detected, a nil slice and
+// nil error will be returned.
 func Devices(drv midi.Driver) ([]*Device, error) {
 	inputs, err := drv.Ins()
 	if err != nil {
@@ -104,7 +105,8 @@ func Devices(drv midi.Driver) ([]*Device, error) {
 	}
 
 	if len(devices) == 0 {
-		return nil, errors.New("no launchpad devices found")
+		// No devices found, nothing to do.
+		return nil, nil
 	}
 
 	return devices, nil
@@ -145,7 +147,9 @@ func Open(in midi.In, out midi.Out) (*Device, error) {
 		out: out,
 	}
 
-	if err := d.Reset(); err != nil {
+	// Optimistically reset the device but don't return an error if the device
+	// indicates EOF, as the test driver devices do.
+	if err := d.Reset(); err != nil && err != io.EOF {
 		return nil, fmt.Errorf("failed to perform initial reset: %w", err)
 	}
 
@@ -162,7 +166,9 @@ func (d *Device) String() string {
 func (d *Device) Close() error {
 	defer d.wg.Wait()
 
-	if err := d.Reset(); err != nil {
+	// Optimistically reset the device but don't return an error if the device
+	// indicates EOF, as the test driver devices do.
+	if err := d.Reset(); err != nil && err != io.EOF {
 		return fmt.Errorf("failed to reset on close: %w", err)
 	}
 

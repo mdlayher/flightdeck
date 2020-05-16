@@ -65,7 +65,13 @@ func main() {
 
 	devices, err := launchpad.Devices(drv)
 	if err != nil {
-		log.Fatalf("failed to find launchpads: %v", err)
+		log.Fatalf("failed to find Launchpads: %v", err)
+	}
+
+	if len(devices) == 0 {
+		// No devices found, nothing to do.
+		log.Println("no Launchpad devices detected, exiting")
+		return
 	}
 
 	// For each detected device, run the main loop until canceled.
