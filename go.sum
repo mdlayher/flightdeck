@@ -1,5 +1,7 @@
 github.com/google/go-cmp v0.4.1 h1:/exdXoGamhu5ONeUJH0deniYLWYvQwW66yvlfiiKTu0=
 github.com/google/go-cmp v0.4.1/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
+github.com/mdlayher/launchpad v0.0.0-20200517172149-556323bc6ebf h1:xT8mNFulwqQwHF8VEpCjb3lUWBOrZ1pq9EQgwkQz6Ws=
+github.com/mdlayher/launchpad v0.0.0-20200517172149-556323bc6ebf/go.mod h1:JrWatNaDJrQR1z+IqN1Dz9szKIMQ1cfa+L6Y1odAUuQ=
 gitlab.com/gomidi/midi v1.16.4/go.mod h1:3ohtNOhqoSakkuLG/Li1OI6I3J1c2LErnJF5o/VBq1c=
 gitlab.com/gomidi/midi v1.16.5 h1:D+ytdzCobT4snvaXi4HxpKd3J5vhst8DsQWm5XlYn+I=
 gitlab.com/gomidi/midi v1.16.5/go.mod h1:3ohtNOhqoSakkuLG/Li1OI6I3J1c2LErnJF5o/VBq1c=

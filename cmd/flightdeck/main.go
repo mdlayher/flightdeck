@@ -13,8 +13,29 @@
 
 package main
 
-import "fmt"
+import (
+	"log"
+
+	"github.com/mdlayher/launchpad"
+	"gitlab.com/gomidi/rtmididrv"
+)
 
 func main() {
-	fmt.Println("flightdeck")
+	driver, err := rtmididrv.New()
+	if err != nil {
+		log.Fatalf("failed to open MIDI driver: %v", err)
+	}
+
+	devices, err := launchpad.Devices(driver)
+	if err != nil {
+		log.Fatalf("failed to fetch Launchpad devices: %v", err)
+	}
+
+	if len(devices) == 0 {
+		log.Println("no Launchpad devices detected, exiting")
+	}
+
+	for i, d := range devices {
+		log.Printf("%02d: %s", i, d)
+	}
 }
