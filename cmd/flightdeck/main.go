@@ -14,28 +14,91 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"os"
+	"os/signal"
 
 	"github.com/mdlayher/launchpad"
 	"gitlab.com/gomidi/rtmididrv"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
+	ll := log.New(os.Stderr, "", log.LstdFlags)
+
+	// Probe for Launchpad devices and begin the main loop if one or more
+	// are detected.
 	driver, err := rtmididrv.New()
 	if err != nil {
-		log.Fatalf("failed to open MIDI driver: %v", err)
+		ll.Fatalf("failed to open MIDI driver: %v", err)
 	}
+	defer driver.Close()
 
 	devices, err := launchpad.Devices(driver)
 	if err != nil {
-		log.Fatalf("failed to fetch Launchpad devices: %v", err)
+		ll.Fatalf("failed to fetch Launchpad devices: %v", err)
 	}
 
 	if len(devices) == 0 {
-		log.Println("no Launchpad devices detected, exiting")
+		ll.Println("no Launchpad devices detected, exiting")
 	}
 
+	// Use a context to handle cancelation on signal.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var eg errgroup.Group
+
+	eg.Go(func() error {
+		// Wait for signals (configurable per-platform) and then cancel the
+		// context to indicate that the process should shut down.
+		sigC := make(chan os.Signal, 1)
+		signal.Notify(sigC, signals()...)
+
+		s := <-sigC
+		ll.Printf("received %s, shutting down", s)
+		cancel()
+
+		// Stop handling signals at this point to allow the user to forcefully
+		// terminate the binary.
+		signal.Stop(sigC)
+		return nil
+	})
+
 	for i, d := range devices {
-		log.Printf("%02d: %s", i, d)
+		// Shadow d for use in goroutine.
+		d := d
+
+		// For each device, run the main loop until ctx is canceled.
+		eg.Go(func() error {
+			if err := run(ctx, i, d, ll); err != nil {
+				return fmt.Errorf("failed to run on %s: %v", d, err)
+			}
+
+			return d.Close()
+		})
 	}
+
+	if err := eg.Wait(); err != nil {
+		ll.Fatalf("failed to run: %v", err)
+	}
+}
+
+// run runs the main loop for a Launchpad device.
+func run(ctx context.Context, id int, d *launchpad.Device, ll *log.Logger) error {
+	log.Printf("running: %02d: %s", id, d)
+
+	// Continue reading device inputs until ctx is canceled.
+	eventC, err := d.Events(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to listen for events: %v", err)
+	}
+
+	for e := range eventC {
+		log.Printf("%02d: %+v", id, e)
+	}
+
+	return nil
 }
