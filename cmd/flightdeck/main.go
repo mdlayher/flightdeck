@@ -26,6 +26,7 @@ import (
 
 	"github.com/mdlayher/launchpad"
 	"github.com/mdlayher/metricslite"
+	"github.com/mdlayher/schedgroup"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gitlab.com/gomidi/rtmididrv"
@@ -129,7 +130,20 @@ func run(
 		return fmt.Errorf("failed to listen for events: %v", err)
 	}
 
+	sg := schedgroup.New(ctx)
+
+	var i int
+	colors := []launchpad.Color{
+		launchpad.RedHigh,
+		launchpad.OrangeHigh,
+		launchpad.GreenHigh,
+		launchpad.YellowHigh,
+	}
+
 	for e := range eventC {
+		// Capture range variable for schedgroup goroutine.
+		e := e
+
 		// Track on/off events as they occur for the launchpad with this ID.
 		onOff := "off"
 		if e.On {
@@ -139,8 +153,29 @@ func run(
 		mm.LaunchpadEventsTotal(fmt.Sprintf("launchpad%d", id), onOff)
 
 		log.Printf("%02d: %+v", id, e)
+
+		if !e.On {
+			continue
+		}
+
+		// Light this tile using the next color in the slice and then dim it
+		// slightly later.
+		if err := d.Light(e.X, e.Y, colors[i%len(colors)]); err != nil {
+			return fmt.Errorf("failed to light: %v", err)
+		}
+
+		sg.Delay(5*time.Second, func() {
+			if err := d.Light(e.X, e.Y, launchpad.Off); err != nil {
+				// Lazy mode, this is still basically a demo.
+				panicf("failed to dim: %v", err)
+			}
+		})
+
+		i++
 	}
 
+	// Don't care about context cancelation error.
+	_ = sg.Wait()
 	return nil
 }
 
@@ -214,4 +249,8 @@ func newMetrics(mm metricslite.Interface) *metrics {
 	m.Info(1, "development")
 
 	return m
+}
+
+func panicf(format string, a ...interface{}) {
+	panic(fmt.Sprintf(format, a...))
 }
