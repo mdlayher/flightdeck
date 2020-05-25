@@ -123,7 +123,7 @@ func (l *Light) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Lights fetches information about a Key Light device.
+// Lights retrieves the current state of all lights from a Key Light device.
 func (c *Client) Lights(ctx context.Context) ([]*Light, error) {
 	var v struct {
 		Lights []*Light `json:"lights"`
