@@ -41,6 +41,10 @@ func TestClientAccessoryInfo(t *testing.T) {
 	}
 
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if diff := cmp.Diff(http.MethodGet, r.Method); diff != "" {
+			panicf("unexpected HTTP method (-want +got):\n%s", diff)
+		}
+
 		if diff := cmp.Diff("/elgato/accessory-info", r.URL.Path); diff != "" {
 			panicf("unexpected URL path (-want +got):\n%s", diff)
 		}
@@ -69,6 +73,10 @@ func TestClientLights(t *testing.T) {
 	}}
 
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if diff := cmp.Diff(http.MethodGet, r.Method); diff != "" {
+			panicf("unexpected HTTP method (-want +got):\n%s", diff)
+		}
+
 		if diff := cmp.Diff("/elgato/lights", r.URL.Path); diff != "" {
 			panicf("unexpected URL path (-want +got):\n%s", diff)
 		}
@@ -94,6 +102,80 @@ func TestClientLights(t *testing.T) {
 
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("unexpected device (-want +got):\n%s", diff)
+	}
+}
+
+func TestClientSetLights(t *testing.T) {
+	light := &keylight.Light{
+		On:          true,
+		Brightness:  15,
+		Temperature: 293,
+	}
+
+	tests := []struct {
+		name   string
+		lights []*keylight.Light
+		fn     http.HandlerFunc
+		check  func(t *testing.T, err error)
+	}{
+		{
+			name: "bad number of lights",
+			lights: []*keylight.Light{
+				light,
+				// This light doesn't actually exist and should prompt the client
+				// to return an error.
+				{On: true},
+			},
+			check: func(t *testing.T, err error) {
+				if !strings.Contains(err.Error(), "attempted to configure 2 lights, but 1 are present") {
+					t.Fatalf("error did not mention malformed lights input: %v", err)
+				}
+			},
+		},
+		{
+			name:   "OK",
+			lights: []*keylight.Light{light},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			defer cancel()
+
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if diff := cmp.Diff(http.MethodPut, r.Method); diff != "" {
+					panicf("unexpected HTTP method (-want +got):\n%s", diff)
+				}
+
+				if diff := cmp.Diff("/elgato/lights", r.URL.Path); diff != "" {
+					panicf("unexpected URL path (-want +got):\n%s", diff)
+				}
+
+				var v struct {
+					NumberOfLights int               `json:"numberOfLights"`
+					Lights         []*keylight.Light `json:"lights"`
+				}
+
+				if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+					panicf("failed to decode JSON: %v", err)
+				}
+
+				// Only return a single light to the caller to mimic the
+				// behavior of the Key Light when you attempt to configure
+				// multiple lights which may not exist.
+				v.Lights = v.Lights[:1]
+				_ = json.NewEncoder(w).Encode(v)
+			})
+
+			err := c.SetLights(ctx, tt.lights)
+			if err == nil && tt.check != nil {
+				t.Fatal("an error was expected, but none occurred")
+			}
+			if err != nil {
+				tt.check(t, err)
+			}
+		})
 	}
 }
 

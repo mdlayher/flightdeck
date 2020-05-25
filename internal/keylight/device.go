@@ -14,6 +14,7 @@
 package keylight
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -123,17 +124,44 @@ func (l *Light) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// A lightsBody is the JSON API container for light information.
+type lightsBody struct {
+	Lights []*Light `json:"lights"`
+}
+
 // Lights retrieves the current state of all lights from a Key Light device.
 func (c *Client) Lights(ctx context.Context) ([]*Light, error) {
-	var v struct {
-		Lights []*Light `json:"lights"`
-	}
-
-	if err := c.do(ctx, http.MethodGet, "/elgato/lights", nil, &v); err != nil {
+	var body lightsBody
+	if err := c.do(ctx, http.MethodGet, "/elgato/lights", nil, &body); err != nil {
 		return nil, err
 	}
 
-	return v.Lights, nil
+	return body.Lights, nil
+}
+
+// SetLights configures the state of all lights on a Key Light device.
+func (c *Client) SetLights(ctx context.Context, lights []*Light) error {
+	// This structure is small enough where marshaling the whole thing in memory
+	// is not a concern.
+	b, err := json.Marshal(lightsBody{Lights: lights})
+	if err != nil {
+		return err
+	}
+
+	var body lightsBody
+	if err := c.do(ctx, http.MethodPut, "/elgato/lights", bytes.NewReader(b), &body); err != nil {
+		return err
+	}
+
+	// The device will ignore configuration for any lights which do not exist,
+	// but we treat this as an error because the caller should only attempt to
+	// configure the number of lights present on the device.
+	if len(body.Lights) != len(lights) {
+		return fmt.Errorf("keylight: attempted to configure %d lights, but %d are present",
+			len(lights), len(body.Lights))
+	}
+
+	return nil
 }
 
 // do performs an HTTP request with the input parameters, optionally
@@ -144,7 +172,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ou
 	u := *c.u
 	u.Path = path
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), body)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return err
 	}
