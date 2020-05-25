@@ -58,6 +58,45 @@ func TestClientAccessoryInfo(t *testing.T) {
 	}
 }
 
+func TestClientLights(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	want := []*keylight.Light{{
+		On:          true,
+		Brightness:  15,
+		Temperature: 293,
+	}}
+
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if diff := cmp.Diff("/elgato/lights", r.URL.Path); diff != "" {
+			panicf("unexpected URL path (-want +got):\n%s", diff)
+		}
+
+		// These structures match the raw output from the API. To avoid
+		// exporting unnecessary types, we make copies of their definitions
+		// here.
+		v := struct {
+			NumberOfLights int               `json:"numberOfLights"`
+			Lights         []*keylight.Light `json:"lights"`
+		}{
+			NumberOfLights: len(want),
+			Lights:         want,
+		}
+
+		_ = json.NewEncoder(w).Encode(v)
+	})
+
+	got, err := c.Lights(ctx)
+	if err != nil {
+		t.Fatalf("failed to fetch lights: %v", err)
+	}
+
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("unexpected device (-want +got):\n%s", diff)
+	}
+}
+
 func TestClientErrors(t *testing.T) {
 	tests := []struct {
 		name  string

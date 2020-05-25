@@ -68,6 +68,74 @@ func (c *Client) AccessoryInfo(ctx context.Context) (*Device, error) {
 	return &d, nil
 }
 
+var (
+	_ json.Marshaler   = &Light{}
+	_ json.Unmarshaler = &Light{}
+)
+
+// A Light is the status of an individual light on a Key Light device.
+type Light struct {
+	On          bool
+	Brightness  int
+	Temperature int
+
+	// TODO: figure out how to convert Temperature to/from Kelvin.
+	// 2900K = 344
+	// 7000K = 143
+	//
+	// Formulas:
+	// API to Kelvin: int(round(1000000 * val ** -1, -2))
+	// Kelvin to API: int(round(987007 * val ** -0.999, 0))
+}
+
+// A jsonLight is the raw JSON representation of a Light.
+type jsonLight struct {
+	On          int `json:"on"`
+	Brightness  int `json:"brightness"`
+	Temperature int `json:"temperature"`
+}
+
+// MarshalJSON implements json.Marshaler.
+func (l *Light) MarshalJSON() ([]byte, error) {
+	jl := jsonLight{
+		Brightness:  l.Brightness,
+		Temperature: l.Temperature,
+	}
+
+	if l.On {
+		jl.On = 1
+	}
+
+	return json.Marshal(jl)
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (l *Light) UnmarshalJSON(b []byte) error {
+	var jl jsonLight
+	if err := json.Unmarshal(b, &jl); err != nil {
+		return err
+	}
+
+	l.On = jl.On == 1
+	l.Brightness = jl.Brightness
+	l.Temperature = jl.Temperature
+
+	return nil
+}
+
+// Lights fetches information about a Key Light device.
+func (c *Client) Lights(ctx context.Context) ([]*Light, error) {
+	var v struct {
+		Lights []*Light `json:"lights"`
+	}
+
+	if err := c.do(ctx, http.MethodGet, "/elgato/lights", nil, &v); err != nil {
+		return nil, err
+	}
+
+	return v.Lights, nil
+}
+
 // do performs an HTTP request with the input parameters, optionally
 // unmarshaling a JSON body into out if out is not nil.
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, out interface{}) error {
