@@ -24,8 +24,39 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/mdlayher/flightdeck/internal/keylight"
 )
+
+func TestClientAccessoryInfo(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	want := &keylight.Device{
+		ProductName:         "Elgato Key Light",
+		FirmwareBuildNumber: 192,
+		FirmwareVersion:     "1.0.3",
+		SerialNumber:        "ABCDEFGHIJKL",
+		DisplayName:         "Office",
+	}
+
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if diff := cmp.Diff("/elgato/accessory-info", r.URL.Path); diff != "" {
+			panicf("unexpected URL path (-want +got):\n%s", diff)
+		}
+
+		_ = json.NewEncoder(w).Encode(want)
+	})
+
+	got, err := c.AccessoryInfo(ctx)
+	if err != nil {
+		t.Fatalf("failed to fetch device: %v", err)
+	}
+
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("unexpected device (-want +got):\n%s", diff)
+	}
+}
 
 func TestClientErrors(t *testing.T) {
 	tests := []struct {
