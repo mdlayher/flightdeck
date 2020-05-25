@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"time"
@@ -99,7 +100,7 @@ type jsonLight struct {
 func (l *Light) MarshalJSON() ([]byte, error) {
 	jl := jsonLight{
 		Brightness:  l.Brightness,
-		Temperature: l.Temperature,
+		Temperature: ConvertToAPI(l.Temperature),
 	}
 
 	if l.On {
@@ -118,7 +119,7 @@ func (l *Light) UnmarshalJSON(b []byte) error {
 
 	l.On = jl.On == 1
 	l.Brightness = jl.Brightness
-	l.Temperature = jl.Temperature
+	l.Temperature = ConvertToKelvin(jl.Temperature)
 
 	return nil
 }
@@ -169,4 +170,14 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ou
 	}
 
 	return nil
+}
+
+// ConvertToKelvin converts the Elgato API temperatures to Kelvin
+func ConvertToKelvin(elgato int) int {
+	return int(math.Round(10000*math.Pow(float64(elgato), -1)) * 100)
+}
+
+// ConvertToAPI converts Kelvin temperatures to those of the Elgato API
+func ConvertToAPI(kelvin int) int {
+	return int(math.Round(98700700*math.Pow(float64(kelvin), -0.999)) / 100)
 }
