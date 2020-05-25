@@ -69,7 +69,7 @@ func TestClientLights(t *testing.T) {
 	want := []*keylight.Light{{
 		On:          true,
 		Brightness:  15,
-		Temperature: 293,
+		Temperature: 3400,
 	}}
 
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +241,38 @@ func TestClientErrors(t *testing.T) {
 			}
 
 			tt.check(t, err)
+		})
+	}
+}
+
+func TestTemperatureConversion(t *testing.T) {
+	tests := []struct {
+		kel    int
+		elgato int
+	}{
+		{
+			kel:    2900,
+			elgato: 343,
+		},
+		{
+			kel:    7000,
+			elgato: 142,
+		},
+	}
+
+	for i, tt := range tests {
+		tt := tt
+
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			kelvin := keylight.ConvertToKelvin(tt.elgato)
+			if kelvin != tt.kel {
+				t.Fatalf("unexpected temperature Kelvin value, expected %d but got %d", tt.kel, kelvin)
+			}
+
+			el := keylight.ConvertToAPI(kelvin)
+			if el != tt.elgato {
+				t.Fatalf("unexpected temperature Elgato value, expected %d but got %d", tt.kel, kelvin)
+			}
 		})
 	}
 }
