@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -24,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mdlayher/flightdeck/internal/keylight"
 	"github.com/mdlayher/launchpad"
 	"github.com/mdlayher/metricslite"
 	"github.com/mdlayher/schedgroup"
@@ -34,6 +36,11 @@ import (
 )
 
 func main() {
+	var (
+		keylightAddr = flag.String("keylight.addr", "", "HTTP address of Elgato Key Light device to control")
+	)
+	flag.Parse()
+
 	ll := log.New(os.Stderr, "", log.LstdFlags)
 
 	// Probe for Launchpad devices and begin the main loop if one or more
@@ -95,13 +102,24 @@ func main() {
 		return nil
 	})
 
+	// Optionally configure Key Light support.
+	var kc *keylight.Client
+	if addr := *keylightAddr; addr != "" {
+		kc, err = keylight.NewClient(addr, nil)
+		if err != nil {
+			ll.Fatalf("failed to create keylight client: %v", err)
+		}
+	} else {
+		ll.Println("no Elgato Key Light device configured")
+	}
+
 	for i, d := range devices {
 		// Shadow d for use in goroutine.
 		d := d
 
 		// For each device, run the main loop until ctx is canceled.
 		eg.Go(func() error {
-			if err := run(ctx, i, d, ll, mm); err != nil {
+			if err := run(ctx, i, d, kc, ll, mm); err != nil {
 				return fmt.Errorf("failed to run on %s: %v", d, err)
 			}
 
@@ -119,6 +137,7 @@ func run(
 	ctx context.Context,
 	id int,
 	d *launchpad.Device,
+	kc *keylight.Client,
 	ll *log.Logger,
 	mm *metrics,
 ) error {
@@ -145,14 +164,9 @@ func run(
 		e := e
 
 		// Track on/off events as they occur for the launchpad with this ID.
-		onOff := "off"
-		if e.On {
-			onOff = "on"
-		}
+		mm.LaunchpadEventsTotal(fmt.Sprintf("launchpad%d", id), onOff(e.On))
 
-		mm.LaunchpadEventsTotal(fmt.Sprintf("launchpad%d", id), onOff)
-
-		log.Printf("%02d: %+v", id, e)
+		ll.Printf("%02d: %+v", id, e)
 
 		if !e.On {
 			continue
@@ -164,6 +178,8 @@ func run(
 			return fmt.Errorf("failed to light: %v", err)
 		}
 
+		i++
+
 		sg.Delay(5*time.Second, func() {
 			if err := d.Light(e.X, e.Y, launchpad.Off); err != nil {
 				// Lazy mode, this is still basically a demo.
@@ -171,7 +187,24 @@ func run(
 			}
 		})
 
-		i++
+		// TODO: refactor out.
+		if kc == nil || e.X != 0 && e.Y != 0 {
+			continue
+		}
+
+		lights, err := kc.Lights(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch keylight light state: %v", err)
+		}
+
+		for _, l := range lights {
+			l.On = !l.On
+			ll.Printf("turning keylight %s", onOff(l.On))
+		}
+
+		if err := kc.SetLights(ctx, lights); err != nil {
+			return fmt.Errorf("failed to set keylight light state: %v", err)
+		}
 	}
 
 	// Don't care about context cancelation error.
@@ -249,6 +282,14 @@ func newMetrics(mm metricslite.Interface) *metrics {
 	m.Info(1, "development")
 
 	return m
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+
+	return "off"
 }
 
 func panicf(format string, a ...interface{}) {
